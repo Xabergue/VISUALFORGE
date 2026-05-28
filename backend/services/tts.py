@@ -15,7 +15,7 @@ load_dotenv()
 
 TTS_ENGINE = os.getenv("TTS_ENGINE", "kokoro")
 TTS_DEFAULT_VOICE = os.getenv("TTS_DEFAULT_VOICE", "pm_alex")
-WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "base")
+WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL") or "base"
 
 
 def generate_audio(text: str, voice: str = "pm_alex", output_path: str = "output.wav") -> str:
@@ -81,10 +81,28 @@ def generate_subtitles_whisper(audio_path: str, language: str = "pt") -> str:
     Returns:
         str: Caminho do arquivo SRT gerado
     """
+    # Validar audio_path antes de qualquer coisa
+    if not audio_path or not isinstance(audio_path, str):
+        raise RuntimeError("audio_path inválido: deve ser uma string não vazia")
+    if not os.path.isfile(audio_path):
+        raise RuntimeError(f"Arquivo de áudio não encontrado: {audio_path}")
+
+    # Garantir que o modelo nunca seja None — fallback hardcoded para "base"
+    model_name = WHISPER_MODEL_NAME or "base"
+
+    # Tentar importar openai-whisper (import whisper) ou o pacote whisper
     try:
         import whisper
+    except ImportError:
+        try:
+            import openai_whisper as whisper
+        except ImportError:
+            raise RuntimeError(
+                "Whisper não está instalado. Instale com: pip install openai-whisper"
+            )
 
-        model = whisper.load_model(WHISPER_MODEL_NAME)
+    try:
+        model = whisper.load_model(model_name)
         result = model.transcribe(audio_path, language=language)
 
         # Converter segmentos para formato SRT
@@ -101,10 +119,6 @@ def generate_subtitles_whisper(audio_path: str, language: str = "pt") -> str:
 
         return srt_path
 
-    except ImportError:
-        raise RuntimeError(
-            "Whisper não está instalado. Instale com: pip install openai-whisper"
-        )
     except Exception as e:
         raise RuntimeError(f"Erro ao gerar legendas com Whisper: {str(e)}")
 
