@@ -1,43 +1,93 @@
 # -*- coding: utf-8 -*-
-import os, threading
+"""
+VisualForge Backend — FastAPI entrypoint.
+Serviço local de geração automática de vídeos.
+"""
+
+import os
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
 from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente do .env
 load_dotenv()
 
-from database import init_db
+from database import engine, Base
 from routers import tasks, styles
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    base = os.path.dirname(os.path.abspath(__file__))
-    for d in [os.getenv("OUTPUT_DIR", "./output"), os.getenv("LOCAL_MEDIA_DIR", "./resource/local_media"), "resource/fonts", "resource/songs"]:
-        os.makedirs(os.path.join(base, d), exist_ok=True)
-    print("? VisualForge Backend iniciado!")
+    """
+    Lifecycle da aplicação — cria tabelas do banco ao iniciar.
+    """
+    # Criar todas as tabelas no banco de dados
+    Base.metadata.create_all(bind=engine)
+    print("[VisualForge] Banco de dados inicializado.")
+
+    # Garantir que o diretório de output existe
+    output_dir = os.getenv("OUTPUT_DIR", "./output")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Garantir que o diretório de mídia local existe
+    local_media_dir = os.getenv("LOCAL_MEDIA_DIR", "./resource/local_media")
+    os.makedirs(local_media_dir, exist_ok=True)
+
+    print("[VisualForge] Diretórios verificados.")
+    print("[VisualForge] Backend pronto para receber requisições.")
+
     yield
 
-app = FastAPI(title="VisualForge", version="1.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+    print("[VisualForge] Encerrando backend...")
+
+
+# Criar aplicação FastAPI
+app = FastAPI(
+    title="VisualForge",
+    description="Serviço local de geração automática de vídeos",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# Configurar CORS — permitir todas as origens para desenvolvimento local
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Incluir routers
 app.include_router(tasks.router)
 app.include_router(styles.router)
 
-def run_pipeline_background(task_id: str):
-    def _run():
-        from pipeline import get_pipeline
-        from database import SessionLocal
-        from models.task import Task
-        db = SessionLocal()
-        task = db.query(Task).filter(Task.id == task_id).first()
-        db.close()
-        if not task: return
-        pipeline = get_pipeline(task.style)
-        if pipeline: pipeline.run(task_id)
-        else:
-            from pipeline.base import BasePipeline
-            BasePipeline().mark_failed(task_id, f"Pipeline n�o encontrado: {task.style}")
-    threading.Thread(target=_run, daemon=True).start()
+# Montar diretório de output como arquivos estáticos para servir vídeos
+output_dir = os.getenv("OUTPUT_DIR", "./output")
+os.makedirs(output_dir, exist_ok=True)
+app.mount("/api/videos", StaticFiles(directory=output_dir), name="videos")
 
+
+# Endpoint de health check
 @app.get("/api/health")
-async def health(): return {"status": "ok"}
+def health_check():
+    """Verifica se o backend está rodando."""
+    return {"status": "ok", "service": "VisualForge Backend"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 8000))
+
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        reload=True,
+    )

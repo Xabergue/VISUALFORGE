@@ -1,112 +1,271 @@
 # -*- coding: utf-8 -*-
-import os, json, shutil, re
+"""
+Pipeline Stock Footage Narrado — estilo principal do VisualForge.
+Gera vídeo narrado com clipes de stock footage relevantes ao tema.
+"""
+
+import os
+import json
+import asyncio
+import shutil
+from pathlib import Path
+
+from sqlalchemy.orm import Session
+
 from pipeline.base import BasePipeline
-from services.llm import generate_script, generate_keywords
-from services.tts import generate_audio, generate_subtitles
-from services.media import search_media
-from services.ffmpeg_service import assemble_video
-from database import SessionLocal
 from models.task import Task
+from services.llm import generate_script, generate_keywords
+from services.tts import (
+    generate_audio,
+    generate_subtitles_whisper,
+    generate_subtitles_edge,
+    get_audio_duration,
+)
+from services.media import search_videos, search_local_media
+from services.ffmpeg_service import assemble_video, normalize_audio
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./output")
+LOCAL_MEDIA_DIR = os.getenv("LOCAL_MEDIA_DIR", "./resource/local_media")
+SONGS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resource", "songs")
+
 
 class StockFootagePipeline(BasePipeline):
-    def run(self, task_id: str):
-        try:
-            db = SessionLocal()
-            task = db.query(Task).filter(Task.id == task_id).first()
-            if not task: return
-            task.status = "running"
-            task.log = "Iniciando pipeline Stock Footage Narrado..."
-            db.commit()
-            db.close()
+    """
+    Pipeline para geração de vídeos com stock footage narrado.
 
+    Fluxo:
+    1. Gerar roteiro via LLM
+    2. Gerar palavras-chave para cada segmento
+    3. Buscar vídeos de stock (local + Pexels)
+    4. Gerar narração via Kokoro TTS
+    5. Gerar legendas (Whisper ou edge-tts)
+    6. Montar vídeo final com FFmpeg
+    7. Normalizar áudio e exportar
+    """
+
+    def run(self, task: Task, db: Session):
+        """
+        Executa o pipeline completo de geração de vídeo.
+
+        Args:
+            task: Objeto Task do banco de dados
+            db: Sessão do banco de dados
+        """
+        try:
+            # Parsear configuração
             config = json.loads(task.config) if task.config else {}
-            subject = task.subject
             persona = config.get("persona", "neutro")
             language = config.get("language", "pt-BR")
             duration_seconds = config.get("duration_seconds", 60)
             voice = config.get("voice", "pm_alex")
-            music_file = config.get("music_file")
+            music_file = config.get("music_file", None)
             subtitle_position = config.get("subtitle_position", "bottom")
             subtitle_font = config.get("subtitle_font", "default")
             subtitle_mode = config.get("subtitle_mode", "whisper")
             orientation = config.get("orientation", "landscape")
 
-            output_dir = os.getenv("OUTPUT_DIR", "./output")
-            task_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", output_dir, task_id)
+            # Criar diretório de trabalho para esta tarefa
+            task_dir = os.path.join(OUTPUT_DIR, task.id)
             os.makedirs(task_dir, exist_ok=True)
 
-            self.update_progress(task_id, 2, "Gerando roteiro com IA...")
-            script = generate_script(subject, persona, language, duration_seconds)
-            self.update_progress(task_id, 15, f"Roteiro gerado ({len(script)} caracteres)")
+            # =====================================================
+            # PASSO 1: Gerar roteiro (5%)
+            # =====================================================
+            task.update_progress(5, "Gerando roteiro...", db)
 
-            self.update_progress(task_id, 16, "Dividindo roteiro em segmentos...")
-            segments = self._split_script(script)
-            self.update_progress(task_id, 18, f"Roteiro dividido em {len(segments)} segmentos")
+            script = generate_script(
+                subject=task.subject,
+                persona=persona,
+                language=language,
+                duration=duration_seconds,
+            )
 
-            keywords_list = []
-            for i, seg in enumerate(segments):
-                progress = 18 + int((i / max(len(segments), 1)) * 7)
-                self.update_progress(task_id, progress, f"Gerando palavras-chave para segmento {i+1}/{len(segments)}...")
-                kws = generate_keywords(seg)
-                keywords_list.append(kws)
-            self.update_progress(task_id, 25, f"Palavras-chave geradas para {len(segments)} segmentos")
+            if not script:
+                raise RuntimeError("Roteiro vazio — LLM não gerou conteúdo")
 
-            media_paths = []
-            for i, keywords in enumerate(keywords_list):
-                progress = 25 + int((i / max(len(keywords_list), 1)) * 25)
-                self.update_progress(task_id, progress, f"Buscando v�deo para segmento {i+1}/{len(keywords_list)}: {', '.join(keywords[:3])}...")
-                try:
-                    path = search_media(keywords, task_dir, orientation)
-                    if path: media_paths.append(path)
-                except Exception as e:
-                    self.update_progress(task_id, progress, f"Erro ao buscar m�dia: {str(e)}")
+            # Salvar roteiro para referência
+            script_path = os.path.join(task_dir, "script.txt")
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script)
 
-            if not media_paths:
-                raise Exception("Nenhum v�deo encontrado. Verifique Pexels ou m�dia local.")
-            self.update_progress(task_id, 50, f"M�dia encontrada: {len(media_paths)} clipes")
+            # =====================================================
+            # PASSO 2: Gerar palavras-chave (15%)
+            # =====================================================
+            task.update_progress(15, "Roteiro gerado. Gerando palavras-chave...", db)
 
-            self.update_progress(task_id, 52, "Gerando narra��o com TTS...")
+            # Dividir roteiro em segmentos
+            segments = [s.strip() for s in script.split("---") if s.strip()]
+            if not segments:
+                # Se não houver separadores, tratar tudo como um segmento
+                segments = [script]
+
+            all_keywords = []
+            for i, segment in enumerate(segments):
+                keywords = generate_keywords(segment)
+                all_keywords.extend(keywords)
+
+            # Limitar número de palavras-chave
+            all_keywords = all_keywords[:len(segments) * 2]
+
+            # Salvar palavras-chave
+            keywords_path = os.path.join(task_dir, "keywords.json")
+            with open(keywords_path, "w", encoding="utf-8") as f:
+                json.dump(all_keywords, f, ensure_ascii=False, indent=2)
+
+            # =====================================================
+            # PASSO 3: Buscar vídeos de stock (30%)
+            # =====================================================
+            task.update_progress(30, "Buscando vídeos de stock...", db)
+
+            # Buscar vídeos para as palavras-chave
+            # Usar asyncio para a busca assíncrona
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Se já estamos em um event loop (ex: FastAPI BackgroundTasks)
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        clip_paths = pool.submit(
+                            asyncio.run,
+                            search_videos(all_keywords, task.id, count=len(segments))
+                        ).result()
+                else:
+                    clip_paths = loop.run_until_complete(
+                        search_videos(all_keywords, task.id, count=len(segments))
+                    )
+            except RuntimeError:
+                clip_paths = asyncio.run(
+                    search_videos(all_keywords, task.id, count=len(segments))
+                )
+
+            if not clip_paths:
+                # Se não encontrou vídeos, usar mídia local genérica
+                task.append_log("Nenhum vídeo encontrado online. Buscando mídia local genérica...", db)
+                generic_clips = []
+                local_dir = Path(LOCAL_MEDIA_DIR)
+                if local_dir.exists():
+                    video_extensions = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+                    for file_path in local_dir.rglob("*"):
+                        if file_path.is_file() and file_path.suffix.lower() in video_extensions:
+                            generic_clips.append(str(file_path.resolve()))
+                clip_paths = generic_clips
+
+            if not clip_paths:
+                raise RuntimeError(
+                    "Nenhum vídeo de stock encontrado. Adicione vídeos à pasta "
+                    "resource/local_media/ ou configure a API do Pexels."
+                )
+
+            # =====================================================
+            # PASSO 4: Gerar narração (45%)
+            # =====================================================
+            task.update_progress(45, "Gerando narração...", db)
+
+            # Texto completo para narração (sem os separadores ---)
+            narration_text = script.replace("---", " ").strip()
+            narration_text = " ".join(narration_text.split())  # Normalizar espaços
+
             audio_path = os.path.join(task_dir, "narration.wav")
-            generate_audio(script, voice, audio_path, subtitle_mode)
-            self.update_progress(task_id, 65, "Narra��o gerada com sucesso")
+            generate_audio(narration_text, voice=voice, output_path=audio_path)
 
-            self.update_progress(task_id, 67, "Gerando legendas...")
-            srt_path = os.path.join(task_dir, "subtitles.srt")
-            edge_vtt = os.path.join(task_dir, "edge_subtitles.vtt") if subtitle_mode == "edge" else None
-            generate_subtitles(audio_path, srt_path, subtitle_mode, language, edge_vtt, script, voice)
-            self.update_progress(task_id, 80, "Legendas geradas com sucesso")
+            # Obter duração da narração
+            audio_duration = get_audio_duration(audio_path)
 
-            self.update_progress(task_id, 82, "Montando v�deo final com FFmpeg...")
+            # =====================================================
+            # PASSO 5: Gerar legendas (60%)
+            # =====================================================
+            task.update_progress(60, "Gerando legendas...", db)
+
+            # Mapear código de idioma para Whisper
+            language_map = {"pt-BR": "pt", "en-US": "en", "es-ES": "es"}
+            whisper_lang = language_map.get(language, "pt")
+
+            if subtitle_mode == "whisper":
+                subtitle_path = generate_subtitles_whisper(audio_path, language=whisper_lang)
+            else:
+                subtitle_path = generate_subtitles_edge(
+                    narration_text, task_dir, voice=voice
+                )
+
+            if not subtitle_path or not os.path.exists(subtitle_path):
+                task.append_log("Aviso: Não foi possível gerar legendas. Continuando sem legendas...", db)
+                # Criar arquivo SRT vazio para não quebrar o FFmpeg
+                subtitle_path = os.path.join(task_dir, "empty.srt")
+                with open(subtitle_path, "w", encoding="utf-8") as f:
+                    f.write("1\n00:00:00,000 --> 00:00:01,000\n \n\n")
+
+            # =====================================================
+            # PASSO 6: Montar vídeo final (75%)
+            # =====================================================
+            task.update_progress(75, "Montando vídeo final...", db)
+
+            # Buscar música de fundo
             music_path = None
-            if music_file:
-                songs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "resource", "songs")
-                candidate = os.path.join(songs_dir, music_file)
-                if os.path.exists(candidate): music_path = candidate
+            if music_file and os.path.exists(music_file):
+                music_path = music_file
+            else:
+                # Buscar música padrão na pasta songs
+                songs_path = Path(SONGS_DIR)
+                if songs_path.exists():
+                    audio_extensions = {".mp3", ".wav", ".ogg", ".m4a", ".aac"}
+                    for song in songs_path.iterdir():
+                        if song.is_file() and song.suffix.lower() in audio_extensions:
+                            music_path = str(song)
+                            break
 
-            fonts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "resource", "fonts")
-            subtitle_font_path = os.path.join(fonts_dir, "default.ttf") if os.path.exists(os.path.join(fonts_dir, "default.ttf")) else None
+            # Caminho de saída temporário (sem normalização)
+            raw_output_path = os.path.join(task_dir, "video_raw.mp4")
+            # Caminho final
+            final_output_path = os.path.join(task_dir, "video_final.mp4")
 
-            output_filename = f"visualforge_{task_id[:8]}.mp4"
-            final_output = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", output_dir, output_filename)
+            assemble_video(
+                clips=clip_paths,
+                audio_path=audio_path,
+                subtitle_path=subtitle_path,
+                music_path=music_path,
+                orientation=orientation,
+                subtitle_position=subtitle_position,
+                subtitle_font=subtitle_font,
+                output_path=raw_output_path,
+            )
 
-            assemble_video(clips=media_paths, audio_path=audio_path, srt_path=srt_path, output_path=final_output, orientation=orientation, music_path=music_path, subtitle_position=subtitle_position, subtitle_font_path=subtitle_font_path, music_volume=0.15)
-            self.update_progress(task_id, 95, "V�deo montado � finalizando...")
-            try: shutil.rmtree(task_dir, ignore_errors=True)
-            except: pass
-            self.mark_done(task_id, final_output)
+            # =====================================================
+            # PASSO 7: Renderizar vídeo final (90%)
+            # =====================================================
+            task.update_progress(90, "Renderizando vídeo...", db)
+
+            # Normalizar áudio do vídeo final
+            normalize_audio(raw_output_path, final_output_path)
+
+            # Limpar arquivo temporário
+            if os.path.exists(raw_output_path) and raw_output_path != final_output_path:
+                os.remove(raw_output_path)
+
+            # =====================================================
+            # PASSO 8: Finalizar (100%)
+            # =====================================================
+            # Mover para diretório de output com nome legível
+            safe_subject = "".join(c if c.isalnum() or c in " -_" else "_" for c in task.subject)[:50]
+            final_name = f"{task.id[:8]}_{safe_subject}.mp4"
+            public_output_path = os.path.join(OUTPUT_DIR, final_name)
+            shutil.copy2(final_output_path, public_output_path)
+
+            # Atualizar task
+            task.status = "done"
+            task.progress = 100
+            task.output_path = final_name
+            task.updated_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            task.append_log("Vídeo gerado com sucesso!", db)
 
         except Exception as e:
-            self.mark_failed(task_id, str(e))
-
-    def _split_script(self, script: str) -> list:
-        segments = [s.strip() for s in script.split('\n\n') if s.strip()]
-        if len(segments) <= 1:
-            sentences = re.split(r'(?<=[.!?]) +', script)
-            if len(sentences) > 2:
-                segments = []
-                for i in range(0, len(sentences), 2):
-                    segment = ' '.join(sentences[i:i+2]).strip()
-                    if segment: segments.append(segment)
-            else:
-                segments = [script]
-        return segments
+            # Qualquer erro deve ser capturado e registrado
+            task.status = "failed"
+            task.progress = task.progress or 0
+            error_msg = f"Erro no pipeline: {str(e)}"
+            task.log = (task.log or "") + error_msg + "\n"
+            task.updated_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            db.commit()

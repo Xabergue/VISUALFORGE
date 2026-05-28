@@ -1,21 +1,27 @@
 # -*- coding: utf-8 -*-
-import os
+"""
+Conexão com banco de dados SQLite via SQLAlchemy.
+"""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "visualforge.db")
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+DATABASE_URL = "sqlite:///./visualforge.db"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},  # Necessário para SQLite
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()
 
+
 def get_db():
+    """Dependency que fornece uma sessão do banco de dados."""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
-def init_db():
-    Base.metadata.create_all(bind=engine)

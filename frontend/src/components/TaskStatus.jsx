@@ -1,15 +1,47 @@
-const C = {
-  pending: { label: 'Pendente', bg: 'bg-gray-700/50', text: 'text-gray-300', dot: 'bg-gray-400' },
-  running: { label: 'Gerando', bg: 'bg-blue-500/15', text: 'text-blue-400', dot: 'bg-blue-400', animate: true },
-  done: { label: 'Concluído', bg: 'bg-emerald-500/15', text: 'text-emerald-400', dot: 'bg-emerald-400' },
-  failed: { label: 'Falhou', bg: 'bg-red-500/15', text: 'text-red-400', dot: 'bg-red-400' },
+import { Clock, Loader2, CheckCircle2, XCircle } from 'lucide-react'
+
+const statusConfig = {
+  pending: {
+    label: 'Pendente',
+    className: 'bg-white/10 text-vf-text-secondary',
+    icon: Clock,
+  },
+  running: {
+    label: 'Processando',
+    className: 'bg-blue-500/20 text-blue-400',
+    icon: Loader2,
+    animate: true,
+  },
+  done: {
+    label: 'ConcluÃ­do',
+    className: 'bg-green-500/20 text-green-400',
+    icon: CheckCircle2,
+  },
+  failed: {
+    label: 'Falhou',
+    className: 'bg-red-500/20 text-red-400',
+    icon: XCircle,
+  },
 }
+
 export default function TaskStatus({ status, size = 'sm' }) {
-  const c = C[status] || C.pending
+  const config = statusConfig[status] || statusConfig.pending
+  const Icon = config.icon
+
+  const sizeClasses = size === 'sm'
+    ? 'px-2.5 py-1 text-xs gap-1.5'
+    : 'px-3 py-1.5 text-sm gap-2'
+
+  const iconSize = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'
+
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full font-medium ${c.bg} ${c.text} ${size === 'sm' ? 'text-xs px-2.5 py-1' : 'text-sm px-3 py-1.5'}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${c.dot} ${c.animate ? 'animate-pulse' : ''}`} />
-      {c.label}
+    <span className={`
+      inline-flex items-center font-medium rounded-full
+      ${config.className} ${sizeClasses}
+      ${config.animate ? 'animate-pulse-blue' : ''}
+    `}>
+      <Icon className={`${iconSize} ${config.animate ? 'animate-spin' : ''}`} />
+      {config.label}
     </span>
   )
 }
