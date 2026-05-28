@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, asyncio, subprocess
 from dotenv import load_dotenv
 load_dotenv()
@@ -14,7 +15,7 @@ def _generate_audio_kokoro(text: str, voice: str, output_path: str):
     import numpy as np
     pipeline = KPipeline(lang_code='p')
     all_audio = [audio for i, (gs, ps, audio) in enumerate(pipeline(text, voice=voice, speed=1.0)) if audio is not None]
-    if not all_audio: raise Exception("Kokoro TTS não gerou nenhum áudio.")
+    if not all_audio: raise Exception("Kokoro TTS nï¿½o gerou nenhum ï¿½udio.")
     sf.write(output_path, np.concatenate(all_audio), 24000)
 
 def _generate_audio_edge(text: str, voice: str, output_path: str):
@@ -51,7 +52,7 @@ def _generate_subtitles_whisper(audio_path: str, srt_path: str, language: str = 
 def _generate_subtitles_edge(audio_path: str, srt_path: str, vtt_path: str = None):
     vtt = vtt_path or audio_path.replace(".wav", "_edge.vtt")
     if os.path.exists(vtt): _vtt_to_srt(vtt, srt_path)
-    else: raise Exception("VTT não encontrado.")
+    else: raise Exception("VTT nï¿½o encontrado.")
 
 def _vtt_to_srt(vtt_path: str, srt_path: str):
     with open(vtt_path, "r", encoding="utf-8") as f: lines = f.read().strip().split("\n")

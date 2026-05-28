@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, json, shutil, re
 from pipeline.base import BasePipeline
 from services.llm import generate_script, generate_keywords
@@ -53,21 +54,21 @@ class StockFootagePipeline(BasePipeline):
             media_paths = []
             for i, keywords in enumerate(keywords_list):
                 progress = 25 + int((i / max(len(keywords_list), 1)) * 25)
-                self.update_progress(task_id, progress, f"Buscando vídeo para segmento {i+1}/{len(keywords_list)}: {', '.join(keywords[:3])}...")
+                self.update_progress(task_id, progress, f"Buscando vï¿½deo para segmento {i+1}/{len(keywords_list)}: {', '.join(keywords[:3])}...")
                 try:
                     path = search_media(keywords, task_dir, orientation)
                     if path: media_paths.append(path)
                 except Exception as e:
-                    self.update_progress(task_id, progress, f"Erro ao buscar mídia: {str(e)}")
+                    self.update_progress(task_id, progress, f"Erro ao buscar mï¿½dia: {str(e)}")
 
             if not media_paths:
-                raise Exception("Nenhum vídeo encontrado. Verifique Pexels ou mídia local.")
-            self.update_progress(task_id, 50, f"Mídia encontrada: {len(media_paths)} clipes")
+                raise Exception("Nenhum vï¿½deo encontrado. Verifique Pexels ou mï¿½dia local.")
+            self.update_progress(task_id, 50, f"Mï¿½dia encontrada: {len(media_paths)} clipes")
 
-            self.update_progress(task_id, 52, "Gerando narração com TTS...")
+            self.update_progress(task_id, 52, "Gerando narraï¿½ï¿½o com TTS...")
             audio_path = os.path.join(task_dir, "narration.wav")
             generate_audio(script, voice, audio_path, subtitle_mode)
-            self.update_progress(task_id, 65, "Narração gerada com sucesso")
+            self.update_progress(task_id, 65, "Narraï¿½ï¿½o gerada com sucesso")
 
             self.update_progress(task_id, 67, "Gerando legendas...")
             srt_path = os.path.join(task_dir, "subtitles.srt")
@@ -75,7 +76,7 @@ class StockFootagePipeline(BasePipeline):
             generate_subtitles(audio_path, srt_path, subtitle_mode, language, edge_vtt, script, voice)
             self.update_progress(task_id, 80, "Legendas geradas com sucesso")
 
-            self.update_progress(task_id, 82, "Montando vídeo final com FFmpeg...")
+            self.update_progress(task_id, 82, "Montando vï¿½deo final com FFmpeg...")
             music_path = None
             if music_file:
                 songs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "resource", "songs")
@@ -89,7 +90,7 @@ class StockFootagePipeline(BasePipeline):
             final_output = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", output_dir, output_filename)
 
             assemble_video(clips=media_paths, audio_path=audio_path, srt_path=srt_path, output_path=final_output, orientation=orientation, music_path=music_path, subtitle_position=subtitle_position, subtitle_font_path=subtitle_font_path, music_volume=0.15)
-            self.update_progress(task_id, 95, "Vídeo montado — finalizando...")
+            self.update_progress(task_id, 95, "Vï¿½deo montado ï¿½ finalizando...")
             try: shutil.rmtree(task_dir, ignore_errors=True)
             except: pass
             self.mark_done(task_id, final_output)

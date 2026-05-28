@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, subprocess, json, shutil
 
 def assemble_video(clips, audio_path, srt_path, output_path, orientation="landscape", music_path=None, subtitle_position="bottom", subtitle_font_path=None, music_volume=0.15):

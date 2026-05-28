@@ -1,1 +1,2 @@
-# Pacote de serviços
+# -*- coding: utf-8 -*-
+# Pacote de serviï¿½os

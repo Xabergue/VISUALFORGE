@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, httpx
 from dotenv import load_dotenv
 load_dotenv()

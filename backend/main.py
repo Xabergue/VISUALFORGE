@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -35,7 +36,7 @@ def run_pipeline_background(task_id: str):
         if pipeline: pipeline.run(task_id)
         else:
             from pipeline.base import BasePipeline
-            BasePipeline().mark_failed(task_id, f"Pipeline não encontrado: {task.style}")
+            BasePipeline().mark_failed(task_id, f"Pipeline nï¿½o encontrado: {task.style}")
     threading.Thread(target=_run, daemon=True).start()
 
 @app.get("/api/health")

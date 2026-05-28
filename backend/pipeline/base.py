@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 from database import SessionLocal
 from models.task import Task
@@ -50,7 +51,7 @@ class BasePipeline:
                 task.status = "done"
                 task.progress = 100
                 task.output_path = output_path
-                task.log = (task.log + "\nVídeo gerado com sucesso!").strip()
+                task.log = (task.log + "\nVï¿½deo gerado com sucesso!").strip()
                 db.commit()
         except: db.rollback()
         finally: db.close()

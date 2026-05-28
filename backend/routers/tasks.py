@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, json, asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse
@@ -14,11 +15,11 @@ async def create_task(body: dict, db: Session = Depends(get_db)):
     subject = body.get("subject")
     config = body.get("config", {})
     if not style or not subject:
-        raise HTTPException(status_code=400, detail="Campos 'style' e 'subject' são obrigatórios.")
+        raise HTTPException(status_code=400, detail="Campos 'style' e 'subject' sï¿½o obrigatï¿½rios.")
     from routers.styles import STYLES
     valid_ids = [s["id"] for s in STYLES]
     if style not in valid_ids:
-        raise HTTPException(status_code=400, detail=f"Estilo inválido: {style}")
+        raise HTTPException(status_code=400, detail=f"Estilo invï¿½lido: {style}")
     task = Task(style=style, subject=subject.strip(), config=json.dumps(config, ensure_ascii=False))
     db.add(task)
     db.commit()
@@ -37,7 +38,7 @@ async def list_tasks(limit: int = Query(default=50, ge=1, le=200), db: Session =
 @router.get("/{task_id}")
 async def get_task(task_id: str, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
-    if not task: raise HTTPException(status_code=404, detail="Task não encontrada.")
+    if not task: raise HTTPException(status_code=404, detail="Task nï¿½o encontrada.")
     return _task_to_dict(task)
 
 @router.get("/{task_id}/stream")
@@ -47,7 +48,7 @@ async def stream_task(task_id: str, db: Session = Depends(get_db)):
         while count < 3600:
             task = db.query(Task).filter(Task.id == task_id).first()
             if not task:
-                yield f"data: {json.dumps({'error': 'Task não encontrada'})}\n\n"
+                yield f"data: {json.dumps({'error': 'Task nï¿½o encontrada'})}\n\n"
                 break
             data = json.dumps({"status": task.status, "progress": task.progress, "log": task.log}, ensure_ascii=False)
             yield f"data: {data}\n\n"
@@ -59,7 +60,7 @@ async def stream_task(task_id: str, db: Session = Depends(get_db)):
 @router.delete("/{task_id}")
 async def delete_task(task_id: str, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
-    if not task: raise HTTPException(status_code=404, detail="Task não encontrada.")
+    if not task: raise HTTPException(status_code=404, detail="Task nï¿½o encontrada.")
     if task.output_path and os.path.exists(task.output_path):
         try: os.remove(task.output_path)
         except: pass
@@ -74,9 +75,9 @@ async def delete_task(task_id: str, db: Session = Depends(get_db)):
 @router.get("/{task_id}/video")
 async def serve_video(task_id: str, db: Session = Depends(get_db)):
     task = db.query(Task).filter(Task.id == task_id).first()
-    if not task: raise HTTPException(status_code=404, detail="Task não encontrada.")
+    if not task: raise HTTPException(status_code=404, detail="Task nï¿½o encontrada.")
     if not task.output_path or not os.path.exists(task.output_path):
-        raise HTTPException(status_code=404, detail="Arquivo de vídeo não encontrado.")
+        raise HTTPException(status_code=404, detail="Arquivo de vï¿½deo nï¿½o encontrado.")
     return FileResponse(task.output_path, media_type="video/mp4", filename=f"visualforge_{task.style}_{task_id[:8]}.mp4")
 
 def _task_to_dict(task: Task) -> dict:

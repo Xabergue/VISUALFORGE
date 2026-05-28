@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os, json
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -10,20 +11,20 @@ LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-thinking")
 client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
 PERSONA_PROMPTS = {
-    "neutro": "Você é um narrador profissional. Crie roteiros informativos e diretos, com tom imparcial e claro. Evite adjetivos excessivos e mantenha o texto objetivo.",
-    "educativo": "Você é um professor dedicado. Crie roteiros explicativos, didáticos e pacientes, que facilitem o aprendizado. Use exemplos e analogias quando apropriado.",
-    "entretenimento": "Você é um criador de conteúdo dinâmico. Crie roteiros empolgados, coloquiais e envolventes, como um YouTuber. Use expressões naturais e mantenha o ritmo acelerado.",
-    "corporativo": "Você é um apresentador corporativo. Crie roteiros formais, profissionais e objetivos, adequados para apresentações empresariais. Use vocabulário técnico quando necessário.",
+    "neutro": "Vocï¿½ ï¿½ um narrador profissional. Crie roteiros informativos e diretos, com tom imparcial e claro. Evite adjetivos excessivos e mantenha o texto objetivo.",
+    "educativo": "Vocï¿½ ï¿½ um professor dedicado. Crie roteiros explicativos, didï¿½ticos e pacientes, que facilitem o aprendizado. Use exemplos e analogias quando apropriado.",
+    "entretenimento": "Vocï¿½ ï¿½ um criador de conteï¿½do dinï¿½mico. Crie roteiros empolgados, coloquiais e envolventes, como um YouTuber. Use expressï¿½es naturais e mantenha o ritmo acelerado.",
+    "corporativo": "Vocï¿½ ï¿½ um apresentador corporativo. Crie roteiros formais, profissionais e objetivos, adequados para apresentaï¿½ï¿½es empresariais. Use vocabulï¿½rio tï¿½cnico quando necessï¿½rio.",
 }
 
 def generate_script(subject: str, persona: str = "neutro", language: str = "pt-BR", duration_seconds: int = 60) -> str:
     word_count = int(duration_seconds * 2.5)
     system_prompt = PERSONA_PROMPTS.get(persona, PERSONA_PROMPTS["neutro"])
     user_prompt = (
-        f"Crie um roteiro de narração para um vídeo sobre: {subject}\n\n"
-        f"Idioma: {language}\nDuração aproximada: {duration_seconds} segundos (~{word_count} palavras)\n"
-        f"O roteiro deve ser apenas o texto da narração, sem marcações, sem título, sem instruções. Apenas o texto que será lido pelo narrador.\n"
-        f"Não use markdown, não use asteriscos, não use cabeçalhos. Escreva em parágrafos separados por linha em branco."
+        f"Crie um roteiro de narraï¿½ï¿½o para um vï¿½deo sobre: {subject}\n\n"
+        f"Idioma: {language}\nDuraï¿½ï¿½o aproximada: {duration_seconds} segundos (~{word_count} palavras)\n"
+        f"O roteiro deve ser apenas o texto da narraï¿½ï¿½o, sem marcaï¿½ï¿½es, sem tï¿½tulo, sem instruï¿½ï¿½es. Apenas o texto que serï¿½ lido pelo narrador.\n"
+        f"Nï¿½o use markdown, nï¿½o use asteriscos, nï¿½o use cabeï¿½alhos. Escreva em parï¿½grafos separados por linha em branco."
     )
     response = client.chat.completions.create(
         model=LLM_MODEL,

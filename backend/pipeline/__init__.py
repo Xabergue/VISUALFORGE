@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from pipeline.stock_footage import StockFootagePipeline
 from pipeline.image_carousel import ImageCarouselPipeline
 from pipeline.reddit_story import RedditStoryPipeline
