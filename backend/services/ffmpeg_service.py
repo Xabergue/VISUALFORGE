@@ -231,9 +231,9 @@ def _concat_clips(clip_paths: list, output_path: str, target_duration: float = N
     # Escrever arquivo de concatenação
     with open(concat_file, "w", encoding="utf-8") as f:
         for clip in adjusted_clips:
-            # Escapar caracteres especiais no caminho
-            escaped = clip.replace("'", "'\\''")
-            f.write(f"file '{escaped}'\n")
+            # Usar Path.as_posix() para converter barras — FFmpeg aceita em todos os SOs
+            normalized = Path(clip).as_posix()
+            f.write(f"file '{normalized}'\n")
 
     # Concatenar clipes
     cmd = [
