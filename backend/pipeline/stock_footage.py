@@ -58,6 +58,12 @@ class StockFootagePipeline(BasePipeline):
         try:
             # Parsear configuração
             config = json.loads(task.config) if task.config else {}
+
+            # Extrair script e keywords pré-gerados (do fluxo de preview)
+            # Usar pop para remover do config antes de extrair os outros campos
+            pre_script = config.pop("script", None)
+            pre_keywords = config.pop("keywords", None)
+
             persona = config.get("persona", "neutro")
             language = config.get("language", "pt-BR")
             duration_seconds = config.get("duration_seconds", 60)
@@ -73,19 +79,23 @@ class StockFootagePipeline(BasePipeline):
             os.makedirs(task_dir, exist_ok=True)
 
             # =====================================================
-            # PASSO 1: Gerar roteiro (5%)
+            # PASSO 1: Gerar roteiro (5%) — pular se já existe
             # =====================================================
-            task.update_progress(5, "Gerando roteiro...", db)
+            if pre_script:
+                script = pre_script
+                task.update_progress(5, "Usando roteiro revisado pelo usuário...", db)
+            else:
+                task.update_progress(5, "Gerando roteiro...", db)
 
-            script = generate_script(
-                subject=task.subject,
-                persona=persona,
-                language=language,
-                duration=duration_seconds,
-            )
+                script = generate_script(
+                    subject=task.subject,
+                    persona=persona,
+                    language=language,
+                    duration=duration_seconds,
+                )
 
-            if not script:
-                raise RuntimeError("Roteiro vazio — LLM não gerou conteúdo")
+                if not script:
+                    raise RuntimeError("Roteiro vazio — LLM não gerou conteúdo")
 
             # Salvar roteiro para referência
             script_path = os.path.join(task_dir, "script.txt")
@@ -93,23 +103,27 @@ class StockFootagePipeline(BasePipeline):
                 f.write(script)
 
             # =====================================================
-            # PASSO 2: Gerar palavras-chave (15%)
+            # PASSO 2: Gerar palavras-chave (15%) — pular se já existe
             # =====================================================
-            task.update_progress(15, "Roteiro gerado. Gerando palavras-chave...", db)
+            if pre_keywords:
+                all_keywords = pre_keywords
+                task.update_progress(15, "Usando palavras-chave revisadas pelo usuário...", db)
+            else:
+                task.update_progress(15, "Roteiro gerado. Gerando palavras-chave...", db)
 
-            # Dividir roteiro em segmentos
-            segments = [s.strip() for s in script.split("---") if s.strip()]
-            if not segments:
-                # Se não houver separadores, tratar tudo como um segmento
-                segments = [script]
+                # Dividir roteiro em segmentos
+                segments = [s.strip() for s in script.split("---") if s.strip()]
+                if not segments:
+                    # Se não houver separadores, tratar tudo como um segmento
+                    segments = [script]
 
-            all_keywords = []
-            for i, segment in enumerate(segments):
-                keywords = generate_keywords(segment)
-                all_keywords.extend(keywords)
+                all_keywords = []
+                for i, segment in enumerate(segments):
+                    keywords = generate_keywords(segment)
+                    all_keywords.extend(keywords)
 
-            # Limitar número de palavras-chave
-            all_keywords = all_keywords[:len(segments) * 2]
+                # Limitar número de palavras-chave
+                all_keywords = all_keywords[:len(segments) * 2]
 
             # Salvar palavras-chave
             keywords_path = os.path.join(task_dir, "keywords.json")

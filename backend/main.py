@@ -64,6 +64,7 @@ app.add_middleware(
 
 # Incluir routers
 app.include_router(tasks.router)
+app.include_router(tasks.preview_router)
 app.include_router(styles.router)
 
 # Montar diretório de output como arquivos estáticos para servir vídeos

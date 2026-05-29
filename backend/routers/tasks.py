@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Router de Tasks — CRUD + SSE para tarefas de geração de vídeo.
+Router de Tasks — CRUD + SSE + Preview para tarefas de geração de vídeo.
 """
 
 import os
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.task import Task
 from pipeline import get_pipeline
+from services.llm import generate_script, generate_keywords
 
 from dotenv import load_dotenv
 
@@ -24,6 +25,9 @@ load_dotenv()
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./output")
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+# Router separado para preview (sem prefixo /api/tasks)
+preview_router = APIRouter(tags=["preview"])
 
 
 # ==============================================================
@@ -34,6 +38,18 @@ class TaskCreate(BaseModel):
     style: str  # stock_footage | image_carousel | reddit_story | talking_head
     subject: str
     config: Optional[dict] = None
+    script: Optional[str] = None          # roteiro já revisado pelo usuário
+    keywords: Optional[list[str]] = None  # keywords já revisadas pelo usuário
+
+
+class PreviewRequest(BaseModel):
+    subject: str
+    config: Optional[dict] = None
+
+
+class PreviewResponse(BaseModel):
+    script: str
+    keywords: list[str]
 
 
 class TaskResponse(BaseModel):
@@ -91,7 +107,56 @@ def run_pipeline(task_id: str):
 
 
 # ==============================================================
-# Endpoints
+# Endpoints de Preview
+# ==============================================================
+
+@preview_router.post("/api/preview", response_model=PreviewResponse)
+def preview_script(preview_data: PreviewRequest):
+    """
+    Gera roteiro e palavras-chave via LLM sem criar task no banco.
+    Usado para o fluxo de revisão antes de iniciar o pipeline completo.
+    """
+    # Extrair config
+    config = preview_data.config or {}
+    persona = config.get("persona", "neutro")
+    language = config.get("language", "pt-BR")
+    duration_seconds = config.get("duration_seconds", 60)
+
+    # Gerar roteiro
+    try:
+        script = generate_script(
+            subject=preview_data.subject,
+            persona=persona,
+            language=language,
+            duration=duration_seconds,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Erro ao gerar roteiro via LLM: {str(e)}",
+        )
+
+    if not script:
+        raise HTTPException(status_code=502, detail="LLM não gerou conteúdo para o roteiro")
+
+    # Gerar palavras-chave por segmento
+    segments = [s.strip() for s in script.split("---") if s.strip()]
+    if not segments:
+        segments = [script]
+
+    all_keywords = []
+    for segment in segments:
+        keywords = generate_keywords(segment)
+        all_keywords.extend(keywords)
+
+    # Limitar número de palavras-chave (2 por segmento)
+    all_keywords = all_keywords[:len(segments) * 2]
+
+    return PreviewResponse(script=script, keywords=all_keywords)
+
+
+# ==============================================================
+# Endpoints de Tasks
 # ==============================================================
 
 @router.post("", response_model=TaskResponse, status_code=201)
@@ -102,6 +167,7 @@ def create_task(
 ):
     """
     Cria uma nova tarefa de geração de vídeo e inicia o pipeline em background.
+    Se script e keywords forem fornecidos, o pipeline pula a geração via LLM.
     """
     # Validar estilo
     valid_styles = ["stock_footage", "image_carousel", "reddit_story", "talking_head"]
@@ -111,11 +177,18 @@ def create_task(
             detail=f"Estilo inválido: {task_data.style}. Estilos válidos: {valid_styles}",
         )
 
+    # Incluir script e keywords no config para o pipeline acessar
+    merged_config = dict(task_data.config) if task_data.config else {}
+    if task_data.script is not None:
+        merged_config["script"] = task_data.script
+    if task_data.keywords is not None:
+        merged_config["keywords"] = task_data.keywords
+
     # Criar task no banco
     task = Task(
         style=task_data.style,
         subject=task_data.subject,
-        config=json.dumps(task_data.config) if task_data.config else None,
+        config=json.dumps(merged_config) if merged_config else None,
         status="pending",
         progress=0,
         log="",

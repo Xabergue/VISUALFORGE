@@ -70,6 +70,13 @@ export async function fetchStyles() {
   return request('/styles');
 }
 
+export async function previewScript(data) {
+  return request('/preview', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export function getVideoUrl(outputPath) {
   if (!outputPath) return null;
   // If it's already a full URL, return as-is
